@@ -1,0 +1,22 @@
+# Credentials — never commit these
+.env
+
+# Claude Code local settings
+.claude/
+
+# Database (local state, not source code)
+*.db
+
+# Debug output files
+email_debug_before.html
+email_debug_after.html
+email_debug_before.png
+email_debug_after.png
+page_dump.html
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
