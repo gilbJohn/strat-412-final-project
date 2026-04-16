@@ -1,6 +1,17 @@
 """
-database.py — All SQLite logic for KSL Deal Hunter.
-Uses deals.db in the same directory as this file.
+database.py — All SQLite logic for the Craigslist Deal Hunter.
+
+Creates and manages deals.db (SQLite file) in the same directory as this script.
+The database is created automatically on first run — no setup required.
+
+Table: listings
+  Stores every scraped listing with its title, price, category, URL, score,
+  and whether it has been emailed. The url column has a UNIQUE constraint so
+  duplicate listings are silently ignored on insert.
+
+  Added for analysis: human_score (INTEGER) — binary 1/0 scored manually.
+  Add this column once with:
+    ALTER TABLE listings ADD COLUMN human_score INTEGER;
 """
 
 import sqlite3
@@ -10,11 +21,13 @@ DB_PATH = os.path.join(os.path.dirname(__file__), "deals.db")
 
 
 def _connect():
+    """Return a new SQLite connection to deals.db."""
     return sqlite3.connect(DB_PATH)
 
 
 def init_db():
-    """Create the DB and table if they don't exist."""
+    """Create the database and listings table if they don't exist yet.
+    Also migrates older databases that are missing the seller_email column."""
     with _connect() as con:
         con.execute("""
             CREATE TABLE IF NOT EXISTS listings (
@@ -39,8 +52,10 @@ def init_db():
 
 def insert_listing(listing: dict) -> bool:
     """
-    Insert a listing; silently skip if the URL already exists.
+    Insert a listing dict into the database.
+    Uses INSERT OR IGNORE so duplicate URLs are silently skipped.
     Returns True if a new row was inserted, False if it was a duplicate.
+    Expected keys: title, price, category, url.
     """
     with _connect() as con:
         cur = con.execute(

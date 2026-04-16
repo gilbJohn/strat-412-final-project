@@ -1,10 +1,16 @@
 """
-emailer.py — Send an HTML digest email of top KSL deals via Gmail SMTP.
+emailer.py — Send an HTML digest email of top Craigslist deals via Gmail SMTP.
+
+Reads the top-scored un-emailed listings from the database, builds an HTML email
+organized by category, and sends it via Gmail SMTP over SSL. After sending,
+all included listings are marked as emailed in the database so they are not
+re-sent on the next run.
 
 Requires in .env:
-  GMAIL_ADDRESS      — your Gmail address (sender)
-  GMAIL_APP_PASSWORD — 16-char App Password (not your regular password)
-  EMAIL_TO           — recipient address (can be same as sender)
+  GMAIL_ADDRESS      -- your Gmail address (used as sender)
+  GMAIL_APP_PASSWORD -- 16-character App Password from Google Account settings
+                        (NOT your regular Gmail password)
+  EMAIL_TO           -- recipient address (can be the same as GMAIL_ADDRESS)
 """
 
 import os
@@ -22,10 +28,12 @@ from database import mark_emailed
 
 def _reply_url(listing_url: str) -> str | None:
     """
-    Build the Craigslist reply page URL from a listing URL.
-    e.g. https://saltlakecity.craigslist.org/fuo/d/midvale-queen-mattress/7923451580.html
+    Build the Craigslist reply page URL from a listing URL so the email
+    includes a direct 'Reply to seller' button.
+
+    Example:
+      https://saltlakecity.craigslist.org/fuo/d/midvale-queen-mattress/7923451580.html
       -> https://saltlakecity.craigslist.org/reply/slc/fuo/7923451580
-    The area code (slc) is extracted from the subdomain.
     """
     m = re.match(
         r'(https?://(\w+)\.craigslist\.org)/(\w+)/d/[^/]+/(\d+)\.html', listing_url
@@ -170,7 +178,7 @@ def _build_html(deals: list) -> str:
               <td>
                 <div style="font-size:20px;font-weight:800;color:#f8fafc;
                             letter-spacing:-.02em;">
-                  🛒 KSL Deal Hunter
+                  🛒 Craigslist Deal Hunter
                 </div>
                 <div style="color:#64748b;font-family:monospace;font-size:13px;
                             margin-top:3px;">
@@ -200,8 +208,8 @@ def _build_html(deals: list) -> str:
                        text-align:center;">
           <p style="color:#334155;font-size:11px;font-family:monospace;margin:0;">
             Scores by Claude AI &nbsp;·&nbsp;
-            <a href="https://classifieds.ksl.com" style="color:#475569;">
-              classifieds.ksl.com
+            <a href="https://saltlakecity.craigslist.org" style="color:#475569;">
+              saltlakecity.craigslist.org
             </a>
           </p>
         </td></tr>
@@ -215,8 +223,10 @@ def _build_html(deals: list) -> str:
 
 def send_digest(deals: list):
     """
-    Send the HTML digest for `deals` via Gmail SMTP SSL.
-    Marks all sent listings as emailed in the DB.
+    Send the HTML digest email for the given list of deal dicts via Gmail SMTP SSL.
+    After a successful send, marks all included listings as emailed in the database
+    so they won't be re-sent on the next run.
+    Raises EnvironmentError if any required .env variables are missing.
     """
     if not deals:
         print("    No deals to email.")
@@ -239,7 +249,7 @@ def send_digest(deals: list):
         )
 
     today = date.today().strftime("%b %d")
-    subject = f"🛒 KSL Deal Hunter — {len(deals)} finds · {today}"
+    subject = f"🛒 Craigslist Deal Hunter — {len(deals)} finds · {today}"
 
     msg = MIMEMultipart("alternative")
     msg["Subject"] = subject
@@ -247,7 +257,7 @@ def send_digest(deals: list):
     msg["To"] = email_to
 
     # Plain-text fallback
-    plain_lines = [f"KSL Deal Hunter — {len(deals)} finds · {today}", ""]
+    plain_lines = [f"Craigslist Deal Hunter — {len(deals)} finds · {today}", ""]
     current_cat = None
     for d in deals:
         if d["category"] != current_cat:

@@ -1,7 +1,7 @@
 """
 debug_scrape.py -- Diagnose why the scraper finds 0 listings.
 
-Run from the ksl_deal_hunter/ directory:
+Run from the craigslist_deal_hunter/ directory:
     python debug_scrape.py
 """
 
@@ -9,8 +9,7 @@ import time
 from playwright.sync_api import sync_playwright
 
 TEST_URL = (
-    "https://classifieds.ksl.com/search/"
-    "?category=Computers+%26+Software&priceMax=500&sort=newest"
+    "https://saltlakecity.craigslist.org/search/sya?max_price=500&sort=date"
 )
 
 USER_AGENT = (

@@ -1,16 +1,18 @@
 """
-ksl_scraper.py -- Craigslist Salt Lake City scraper.
+craigslist_scraper.py — Craigslist Salt Lake City listing scraper.
 
-Craigslist serves server-rendered HTML (no JS required) and embeds all
-listing data as a JSON-LD block inside the page. We parse that for title
-and price, then grab listing URLs with a simple regex — no Playwright,
-no third-party libraries beyond the Python standard library.
+Fetches HTML from four Craigslist SLC search pages and extracts listing data
+using regex. No JavaScript execution required — Craigslist serves server-rendered
+HTML. Playwright is only used for the optional seller email extraction feature.
 
-Search categories (Salt Lake City):
-  sya = computers & tech
-  vga = video gaming
-  fua = furniture
-  sga = sporting goods
+Search categories and their Craigslist URL codes:
+  sya = computers & tech  (PC Parts & Electronics)
+  vga = video gaming      (Video Games & Consoles)
+  fua = furniture         (Furniture)
+  sga = sporting goods    (Sporting Goods)
+
+Each category is capped at a max price to filter out expensive listings.
+A 2-second delay between requests keeps us from getting rate-limited.
 """
 
 import re
@@ -50,17 +52,22 @@ BETWEEN_REQUESTS_SECONDS = 2
 
 
 def _fetch(url: str) -> str:
+    """Fetch the raw HTML for a URL using a browser-like user-agent header."""
     req = urllib.request.Request(url, headers=HEADERS)
     with urllib.request.urlopen(req, timeout=15) as r:
         return r.read().decode("utf-8")
 
 
 def _scrape_category(category: str, url: str) -> list:
+    """
+    Scrape a single Craigslist search page and return a list of listing dicts.
+    Each dict has keys: title, price, category, url.
+
+    Parses each <li class="cl-static-search-result"> block in one regex pass
+    so title, price, and URL are always matched correctly to the same listing.
+    """
     html = _fetch(url)
 
-    # Each listing is a <li class="cl-static-search-result"> block containing
-    # the href, title, and price together — parsed in one pass so URL/title/price
-    # are always correctly matched with no index-alignment issues.
     pattern = re.compile(
         r'<li class="cl-static-search-result"[^>]*>\s*'
         r'<a href="([^"]+)">\s*'
@@ -148,8 +155,10 @@ def fetch_emails_for_listings(listings: list, min_score: int = 6) -> dict:
 
 def scrape_all() -> list:
     """
-    Scrape all configured Craigslist SLC categories.
-    Returns a deduplicated list of {title, price, category, url} dicts.
+    Scrape all configured Craigslist SLC search categories.
+    Returns a deduplicated list of dicts with keys: title, price, category, url.
+    Deduplication is done by URL — a listing appearing in multiple categories
+    is only kept once.
     """
     all_listings = []
 

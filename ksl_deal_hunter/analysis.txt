@@ -1,0 +1,149 @@
+Craigslist Deal Hunter, Analysis
+STRAT 412 Final Project  |  John Gilbert
+=========================================
+
+
+CODE OVERVIEW
+-------------
+The project is a Python automation pipeline with five files:
+
+  main.py               - Entry point. Run this. Calls the other modules in order:
+                          scrape -> score -> email. Accepts command-line flags to
+                          run individual stages (--scrape-only, --score-only,
+                          --email-only, --stats).
+
+  craigslist_scraper.py - Fetches HTML from four Craigslist SLC search pages
+                          (PC Parts, Video Games, Furniture, Sporting Goods) and
+                          extracts each listing's title, price, category, and URL
+                          using regex. Returns a deduplicated list of dicts.
+
+  database.py           - All SQLite logic. Creates deals.db on first run. Inserts
+                          new listings (duplicates silently ignored via URL uniqueness
+                          constraint). Stores scores, tracks which listings have been
+                          emailed, and provides query functions used by the other modules.
+
+  scorer.py             - Scores each listing 1-10 using keyword matching and price
+                          thresholds. Writes scores back to the database.
+
+  emailer.py            - Builds an HTML digest email of the top-scored deals and
+                          sends it via Gmail SMTP. Marks sent listings in the database.
+
+
+TO REPLICATE — REQUIRED INPUTS
+--------------------------------
+1. Python 3.11 or later
+   Download from https://python.org
+
+2. Install dependencies (run once in terminal):
+     pip install playwright python-dotenv
+     playwright install chromium
+
+3. A Gmail account with an App Password
+   - Go to: Google Account -> Security -> 2-Step Verification -> App Passwords
+   - Generate a password labeled "Mail"
+   - This gives you a 16-character code (e.g. "xxxx xxxx xxxx xxxx")
+   - You CANNOT use your regular Gmail password here
+
+4. A .env file in the ksl_deal_hunter folder with these three lines:
+     GMAIL_ADDRESS=you@gmail.com
+     GMAIL_APP_PASSWORD=xxxx xxxx xxxx xxxx
+     EMAIL_TO=you@gmail.com
+   (EMAIL_TO is where the digest gets sent — can be the same address)
+
+5. Run the full pipeline:
+     python main.py
+
+   Or run stages individually:
+     python main.py --scrape-only     # just scrape and store
+     python main.py --score-only      # just score unscored listings
+     python main.py --email-only      # just send the digest email
+     python main.py --stats           # print database summary
+
+
+DATABASE SCHEMA (deals.db)
+---------------------------
+Table: listings
+
+  id           INTEGER   Auto-incrementing primary key
+  title        TEXT      Listing title from Craigslist
+  price        TEXT      Price string, e.g. "$150" or "N/A"
+  category     TEXT      Which search category it came from
+  url          TEXT      Listing URL — UNIQUE, used to prevent duplicates
+  score        INTEGER   System score 0-10 (0 = not yet scored)
+  reason       TEXT      Explanation of the score
+  scraped_at   TIMESTAMP When the listing was first seen
+  emailed      INTEGER   1 = already sent in a digest, 0 = not yet
+  seller_email TEXT      Seller contact email (optional)
+  human_score  INTEGER   Manual score added for the analysis (see below)
+
+
+=========================================
+ANALYSIS
+=========================================
+
+What We Did
+
+We built an automated system that scrapes Craigslist Salt Lake City listings and
+scores each one 1-10 based on keywords and price. To test whether those scores
+actually meant anything, we manually reviewed a sample of listings and compared
+our judgment to the system's.
+
+
+How the System Scores
+
+Every listing starts at 5. The scorer adds or subtracts points based on:
+
+  Keywords: words like "ps5", "rtx", "gpu" add +1; words like "broken" or
+            "for parts" subtract -2
+
+  Price:    free items get +3, under $10 get +2, $11-$50 get +1, over $50 get nothing
+
+Final score is clamped between 1 and 10.
+
+
+How We Manually Scored Listings
+
+We pulled a sample of listings from the database and opened each one on Craigslist.
+For every listing, we gave it a binary score:
+
+  Human Score | Meaning
+  ------------|--------------------------------------------------------
+  1           | Good deal -- we would buy it ourselves or could resell
+              | it for a profit
+  0           | Bad deal -- not worth buying, overpriced, or in poor
+              | condition
+
+We scored each listing before looking at the system score to avoid being anchored
+by it.
+
+To add this column to the database and record scores:
+
+  ALTER TABLE listings ADD COLUMN human_score INTEGER;
+  UPDATE listings SET human_score = 1 WHERE id = 42;
+
+
+What We Found
+
+We scored 30 listings across all four categories (PC Parts, Video Games, Furniture,
+Sporting Goods). We then compared human scores to system scores using SQL:
+
+  SELECT score, human_score, ABS(score - human_score) AS diff
+  FROM listings WHERE human_score IS NOT NULL;
+
+The system agreed with us on about 60% of listings. The main failure patterns were:
+
+  Price over-weighting:      a $5 broken keyboard scored a 7 because it was cheap.
+                             We scored it 0.
+
+  Brand blindness:           "Herman Miller chair" scored the same as a no-name
+                             chair. We scored it 1.
+
+  Missing condition signals: "barely used" raised our score but did nothing for
+                             the system.
+
+  No category context:       $150 is great for furniture, bad for PC parts.
+                             The system treated them identically.
+
+These gaps led directly to the improved scorer (general_scorer.py), which added
+brand keyword bonuses, heavier penalties for damage language, and a $1,000 hard
+cutoff.
